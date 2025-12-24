@@ -32,13 +32,19 @@ export async function POST(request: Request) {
       .upsert({ key, value, updated_by: user.id, updated_at: new Date().toISOString() }, { onConflict: "key" })
 
     if (error) {
-      console.error("Error updating setting:", error)
-      return NextResponse.json({ error: "Failed to update setting" }, { status: 500 })
+      const errorInfo = {
+        message: error.message || "Unknown error",
+        details: error.details || "No details available",
+        hint: error.hint || "No hint available",
+        code: error.code || "No code available",
+      }
+      console.error("Error updating setting:", errorInfo, "Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
+      return NextResponse.json({ error: error.message || "Failed to update setting" }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error in update-settings route:", error)
+    console.error("Error in update-settings route:", error instanceof Error ? error.message : "Unknown error", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

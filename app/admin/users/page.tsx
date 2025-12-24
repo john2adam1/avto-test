@@ -18,7 +18,13 @@ async function getUsers() {
     .order("created_at", { ascending: false })
 
   if (error) {
-    console.error("Error fetching users:", error)
+    const errorInfo = {
+      message: error.message || "Unknown error",
+      details: error.details || "No details available",
+      hint: error.hint || "No hint available",
+      code: error.code || "No code available",
+    }
+    console.error("Error fetching users:", errorInfo, "Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
     return []
   }
 

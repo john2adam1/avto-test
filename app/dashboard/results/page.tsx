@@ -11,10 +11,9 @@ interface Attempt {
   time_spent: number
   passed: boolean
   completed_at: string
-  total_questions: number
+  test_id: string
   tests: {
     id: string
-    title: string
     test_types: {
       name: string
     }
@@ -33,10 +32,9 @@ async function getUserAttempts(userId: string) {
       time_spent,
       passed,
       completed_at,
-      total_questions,
+      test_id,
       tests (
         id,
-        title,
         test_types (
           name
         )
@@ -48,11 +46,29 @@ async function getUserAttempts(userId: string) {
     .order("completed_at", { ascending: false })
 
   if (error) {
-    console.error("Error fetching attempts:", error)
+    const errorInfo = {
+      message: error.message || "Unknown error",
+      details: error.details || "No details available",
+      hint: error.hint || "No hint available",
+      code: error.code || "No code available",
+    }
+    console.error("Error fetching attempts:", errorInfo, "Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
     return []
   }
 
-  return data as Attempt[]
+  if (!data) {
+    return []
+  }
+
+  // Type assertion with proper handling of nested objects
+  return data.map((item) => {
+    const test = Array.isArray(item.tests) ? item.tests[0] : item.tests
+    const testType = test && Array.isArray(test.test_types) ? test.test_types[0] : test?.test_types
+    return {
+      ...item,
+      tests: test ? { ...test, test_types: testType } : test,
+    }
+  }) as Attempt[]
 }
 
 export default async function ResultsHistoryPage() {
@@ -170,16 +186,19 @@ export default async function ResultsHistoryPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {attempts.map((attempt) => (
-                  <div
-                    key={attempt.id}
-                    className="flex flex-col gap-4 rounded-lg border-2 p-4 transition-all hover:shadow-lg sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900">{attempt.tests.title}</h3>
-                      <p className="text-sm text-gray-600">{attempt.tests.test_types.name}</p>
-                      <p className="mt-1 text-sm text-gray-500">{formatDate(attempt.completed_at)}</p>
-                    </div>
+                {attempts.map((attempt) => {
+                  const test = Array.isArray(attempt.tests) ? attempt.tests[0] : attempt.tests
+                  const testType = test && Array.isArray(test.test_types) ? test.test_types[0] : test?.test_types
+                  
+                  return (
+                    <div
+                      key={attempt.id}
+                      className="flex flex-col gap-4 rounded-lg border-2 p-4 transition-all hover:shadow-lg sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex-1">
+                        <h3 className="text-lg font-semibold text-gray-900">{testType?.name || "Unknown Test"}</h3>
+                        <p className="mt-1 text-sm text-gray-500">{formatDate(attempt.completed_at)}</p>
+                      </div>
 
                     <div className="flex flex-wrap items-center gap-4">
                       <div className="flex items-center gap-2">
@@ -211,11 +230,12 @@ export default async function ResultsHistoryPage() {
                       </div>
 
                       <Button asChild size="sm">
-                        <Link href={`/test/${attempt.tests.id}/results/${attempt.id}`}>View Details</Link>
+                        <Link href={`/test/${attempt.test_id}/results/${attempt.id}`}>View Details</Link>
                       </Button>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </CardContent>

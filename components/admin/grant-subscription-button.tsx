@@ -35,8 +35,9 @@ export function GrantSubscriptionButton({ userId, userEmail }: { userId: string;
       alert(`Successfully granted ${months} month subscription!`)
       router.refresh()
     } catch (error) {
-      console.error("Error granting subscription:", error)
-      alert("Failed to grant subscription. Please try again.")
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      console.error("Error granting subscription:", errorMessage, error)
+      alert(`Failed to grant subscription: ${errorMessage}`)
     } finally {
       setIsLoading(false)
     }

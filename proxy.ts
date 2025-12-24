@@ -1,6 +1,7 @@
 import { updateSession } from "@/lib/supabase/proxy"
+import type { NextRequest } from "next/server"
 
-export default async function proxy(request: Request) {
+export default async function proxy(request: NextRequest) {
   return await updateSession(request)
 }
 

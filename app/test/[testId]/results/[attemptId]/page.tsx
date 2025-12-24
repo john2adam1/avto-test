@@ -11,33 +11,26 @@ interface Attempt {
   score: number
   time_spent: number
   passed: boolean
-  total_questions: number
+  selected_answer: number
+  is_correct: boolean
   tests: {
-    title: string
+    question_text: string
+    image_url: string | null
+    correct_answer: number
+    answer_0: string
+    answer_1: string
+    answer_2: string
+    answer_3: string
     test_types: {
       name: string
     }
   }
 }
 
-interface Answer {
-  question_id: string
-  selected_answer: number
-  is_correct: boolean
-  questions: {
-    question_text: string
-    correct_answer: number
-    answer_0: string
-    answer_1: string
-    answer_2: string
-    answer_3: string
-  }
-}
-
 async function getAttemptResults(attemptId: string, userId: string) {
   const supabase = await createClient()
 
-  // Get attempt details
+  // Get attempt details with test and question data
   const { data: attempt, error: attemptError } = await supabase
     .from("user_test_attempts")
     .select(
@@ -46,9 +39,16 @@ async function getAttemptResults(attemptId: string, userId: string) {
       score,
       time_spent,
       passed,
-      total_questions,
+      selected_answer,
+      is_correct,
       tests (
-        title,
+        question_text,
+        image_url,
+        correct_answer,
+        answer_0,
+        answer_1,
+        answer_2,
+        answer_3,
         test_types (
           name
         )
@@ -60,39 +60,29 @@ async function getAttemptResults(attemptId: string, userId: string) {
     .single()
 
   if (attemptError || !attempt) {
-    console.error("Error fetching attempt:", attemptError)
+    if (attemptError) {
+      const errorInfo = {
+        message: attemptError.message || "Unknown error",
+        details: attemptError.details || "No details available",
+        hint: attemptError.hint || "No hint available",
+        code: attemptError.code || "No code available",
+      }
+      console.error("Error fetching attempt:", errorInfo, "Full error:", JSON.stringify(attemptError, Object.getOwnPropertyNames(attemptError)))
+    } else {
+      console.error("Error fetching attempt: No attempt data returned")
+    }
     return null
   }
 
-  // Get user answers with question details
-  const { data: answers, error: answersError } = await supabase
-    .from("user_answers")
-    .select(
-      `
-      question_id,
-      selected_answer,
-      is_correct,
-      questions (
-        question_text,
-        correct_answer,
-        answer_0,
-        answer_1,
-        answer_2,
-        answer_3
-      )
-    `,
-    )
-    .eq("attempt_id", attemptId)
-
-  if (answersError) {
-    console.error("Error fetching answers:", answersError)
-    return null
+  // Handle nested objects - Supabase might return arrays for nested relations
+  const test = Array.isArray(attempt.tests) ? attempt.tests[0] : attempt.tests
+  const testType = test && Array.isArray(test.test_types) ? test.test_types[0] : test?.test_types
+  const processedAttempt = {
+    ...attempt,
+    tests: test ? { ...test, test_types: testType } : test,
   }
 
-  return {
-    attempt: attempt as Attempt,
-    answers: answers as Answer[],
-  }
+  return processedAttempt as Attempt
 }
 
 export default async function ResultsPage({
@@ -111,16 +101,15 @@ export default async function ResultsPage({
     redirect("/auth/login")
   }
 
-  const data = await getAttemptResults(attemptId, user.id)
+  const attempt = await getAttemptResults(attemptId, user.id)
 
-  if (!data) {
+  if (!attempt) {
     redirect("/dashboard")
   }
 
-  const { attempt, answers } = data
-
-  const correctAnswers = answers.filter((a) => a.is_correct).length
-  const incorrectAnswers = answers.length - correctAnswers
+  const test = attempt.tests
+  const selectedAnswerText = test[`answer_${attempt.selected_answer}` as keyof typeof test] as string
+  const correctAnswerText = test[`answer_${test.correct_answer}` as keyof typeof test] as string
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -159,9 +148,7 @@ export default async function ResultsPage({
           <h1 className="mb-2 text-4xl font-bold text-gray-900">
             {attempt.passed ? "Congratulations!" : "Keep Practicing!"}
           </h1>
-          <p className="text-xl text-gray-600">
-            {attempt.tests.title} - {attempt.tests.test_types.name}
-          </p>
+          <p className="text-xl text-gray-600">{test.test_types.name}</p>
         </div>
 
         {/* Score Overview */}
@@ -190,21 +177,21 @@ export default async function ResultsPage({
 
           <Card className="border-2">
             <CardHeader>
-              <CardTitle className="text-lg text-gray-600">Correct Answers</CardTitle>
+              <CardTitle className="text-lg text-gray-600">Result</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-5xl font-bold text-green-600">
-                {correctAnswers}/{attempt.total_questions}
-              </div>
-              <div className="mt-2 flex items-center gap-4 text-sm">
-                <span className="flex items-center gap-1 text-green-600">
-                  <CheckCircle className="h-4 w-4" />
-                  {correctAnswers} Correct
-                </span>
-                <span className="flex items-center gap-1 text-red-600">
-                  <XCircle className="h-4 w-4" />
-                  {incorrectAnswers} Incorrect
-                </span>
+                {attempt.passed ? (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="h-12 w-12" />
+                    <span>Passed</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <XCircle className="h-12 w-12" />
+                    <span>Failed</span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -216,47 +203,44 @@ export default async function ResultsPage({
             <CardTitle className="text-2xl">Question Review</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {answers.map((answer, index) => {
-              const question = answer.questions
-              const selectedAnswerText = question[`answer_${answer.selected_answer}` as keyof typeof question] as string
-              const correctAnswerText = question[`answer_${question.correct_answer}` as keyof typeof question] as string
+            <div
+              className={`rounded-lg border-2 p-6 ${
+                attempt.is_correct ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
+              }`}
+            >
+              <div className="mb-4 flex items-start justify-between">
+                <h3 className="flex-1 text-lg font-semibold leading-relaxed text-gray-900">{test.question_text}</h3>
+                {attempt.is_correct ? (
+                  <CheckCircle className="h-6 w-6 shrink-0 text-green-600" />
+                ) : (
+                  <XCircle className="h-6 w-6 shrink-0 text-red-600" />
+                )}
+              </div>
 
-              return (
-                <div
-                  key={answer.question_id}
-                  className={`rounded-lg border-2 p-6 ${answer.is_correct ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}
-                >
-                  <div className="mb-4 flex items-start justify-between">
-                    <h3 className="flex-1 text-lg font-semibold leading-relaxed text-gray-900">
-                      {index + 1}. {question.question_text}
-                    </h3>
-                    {answer.is_correct ? (
-                      <CheckCircle className="h-6 w-6 shrink-0 text-green-600" />
-                    ) : (
-                      <XCircle className="h-6 w-6 shrink-0 text-red-600" />
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <span className="text-sm font-medium text-gray-600">Your Answer: </span>
-                      <span
-                        className={`text-base ${answer.is_correct ? "text-green-700 font-medium" : "text-red-700"}`}
-                      >
-                        {answer.selected_answer === -1 ? "No answer selected" : selectedAnswerText}
-                      </span>
-                    </div>
-
-                    {!answer.is_correct && (
-                      <div>
-                        <span className="text-sm font-medium text-gray-600">Correct Answer: </span>
-                        <span className="text-base font-medium text-green-700">{correctAnswerText}</span>
-                      </div>
-                    )}
-                  </div>
+              {test.image_url && (
+                <div className="relative mb-4 aspect-video w-full overflow-hidden rounded-lg bg-gray-100">
+                  <img src={test.image_url} alt="Question illustration" className="h-full w-full object-cover" />
                 </div>
-              )
-            })}
+              )}
+
+              <div className="space-y-3">
+                <div>
+                  <span className="text-sm font-medium text-gray-600">Your Answer: </span>
+                  <span
+                    className={`text-base ${attempt.is_correct ? "text-green-700 font-medium" : "text-red-700"}`}
+                  >
+                    {attempt.selected_answer === -1 ? "No answer selected" : selectedAnswerText}
+                  </span>
+                </div>
+
+                {!attempt.is_correct && (
+                  <div>
+                    <span className="text-sm font-medium text-gray-600">Correct Answer: </span>
+                    <span className="text-base font-medium text-green-700">{correctAnswerText}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
 

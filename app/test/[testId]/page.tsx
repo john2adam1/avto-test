@@ -3,37 +3,39 @@ import { redirect } from "next/navigation"
 import { TestInterface } from "@/components/test-interface"
 import { getSubscriptionStatus } from "@/lib/supabase/subscription"
 
-interface Question {
+interface Test {
   id: string
+  test_type_id: string
   question_text: string
-  image_url: string
+  image_url: string | null
   correct_answer: number
   answer_0: string
   answer_1: string
   answer_2: string
   answer_3: string
-  order_index: number
-}
-
-interface Test {
-  id: string
-  title: string
   test_types: {
     name: string
     time_limit: number
   }
 }
 
-async function getTestWithQuestions(testId: string) {
+async function getTest(testId: string) {
   const supabase = await createClient()
 
-  // Get test details with test type
+  // Get test with question data and test type
   const { data: test, error: testError } = await supabase
     .from("tests")
     .select(
       `
       id,
-      title,
+      test_type_id,
+      question_text,
+      image_url,
+      correct_answer,
+      answer_0,
+      answer_1,
+      answer_2,
+      answer_3,
       test_types (
         name,
         time_limit
@@ -44,26 +46,27 @@ async function getTestWithQuestions(testId: string) {
     .single()
 
   if (testError || !test) {
-    console.error("Error fetching test:", testError)
+    if (testError) {
+      const errorInfo = {
+        message: testError.message || "Unknown error",
+        details: testError.details || "No details available",
+        hint: testError.hint || "No hint available",
+        code: testError.code || "No code available",
+      }
+      console.error("Error fetching test:", errorInfo, "Full error:", JSON.stringify(testError, Object.getOwnPropertyNames(testError)))
+    } else {
+      console.error("Error fetching test: No test data returned")
+    }
     return null
   }
 
-  // Get questions for this test
-  const { data: questions, error: questionsError } = await supabase
-    .from("questions")
-    .select("*")
-    .eq("test_id", testId)
-    .order("order_index")
-
-  if (questionsError) {
-    console.error("Error fetching questions:", questionsError)
-    return null
-  }
+  // Handle nested test_types - it might be an array from Supabase
+  const testTypes = Array.isArray(test.test_types) ? test.test_types[0] : test.test_types
 
   return {
-    test: test as Test,
-    questions: questions as Question[],
-  }
+    ...test,
+    test_types: testTypes,
+  } as Test
 }
 
 export default async function TestPage({ params }: { params: Promise<{ testId: string }> }) {
@@ -84,21 +87,24 @@ export default async function TestPage({ params }: { params: Promise<{ testId: s
     redirect("/dashboard")
   }
 
-  const data = await getTestWithQuestions(testId)
+  const test = await getTest(testId)
 
-  if (!data) {
+  if (!test) {
     redirect("/dashboard")
   }
-
-  const { test, questions } = data
 
   return (
     <TestInterface
       testId={test.id}
-      testTitle={test.title}
       testTypeName={test.test_types.name}
       timeLimit={test.test_types.time_limit}
-      questions={questions}
+      questionText={test.question_text}
+      imageUrl={test.image_url}
+      answer0={test.answer_0}
+      answer1={test.answer_1}
+      answer2={test.answer_2}
+      answer3={test.answer_3}
+      correctAnswer={test.correct_answer}
       userId={user.id}
     />
   )

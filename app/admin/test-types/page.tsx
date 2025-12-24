@@ -12,7 +12,13 @@ async function getTestTypes() {
   const { data, error } = await supabase.from("test_types").select("*").order("name")
 
   if (error) {
-    console.error("Error fetching test types:", error)
+    const errorInfo = {
+      message: error.message || "Unknown error",
+      details: error.details || "No details available",
+      hint: error.hint || "No hint available",
+      code: error.code || "No code available",
+    }
+    console.error("Error fetching test types:", errorInfo, "Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
     return []
   }
 

@@ -4,7 +4,6 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Shield, ShieldOff } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 
 export function ToggleAdminButton({
   userId,
@@ -25,17 +24,34 @@ export function ToggleAdminButton({
     }
 
     setLoading(true)
-    const supabase = createClient()
 
-    const { error } = await supabase.from("profiles").update({ is_admin: !isAdmin }).eq("id", userId)
+    try {
+      const response = await fetch("/api/admin/toggle-admin", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          isAdmin: !isAdmin,
+        }),
+      })
 
-    if (error) {
-      alert(`Error: ${error.message}`)
+      const result = await response.json()
+
+      if (!response.ok) {
+        alert(`Error: ${result.error || "Failed to update admin status"}`)
+        setLoading(false)
+        return
+      }
+
+      // Success - refresh the page to show updated status
+      router.refresh()
+    } catch (error) {
+      console.error("Error toggling admin status:", error)
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to update admin status"}`)
       setLoading(false)
-      return
     }
-
-    router.refresh()
   }
 
   return (

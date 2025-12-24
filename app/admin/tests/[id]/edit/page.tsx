@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 import { checkIsAdmin } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
-import { TestForm } from "@/components/admin/test-form"
+import { TestFormSimple } from "@/components/admin/test-form-simple"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
@@ -57,7 +57,7 @@ export default async function EditTestPage({ params }: { params: Promise<{ id: s
       </header>
 
       <main className="container mx-auto max-w-2xl px-6 py-12">
-        <TestForm test={test} testTypes={testTypes} />
+        <TestFormSimple test={test} testTypes={testTypes} />
       </main>
     </div>
   )

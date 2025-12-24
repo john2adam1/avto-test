@@ -3,44 +3,44 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Clock, ChevronRight } from "lucide-react"
+import { Clock } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import { Progress } from "@/components/ui/progress"
 import Image from "next/image"
-
-interface Question {
-  id: string
-  question_text: string
-  image_url: string
-  correct_answer: number
-  answer_0: string
-  answer_1: string
-  answer_2: string
-  answer_3: string
-  order_index: number
-}
 
 interface TestInterfaceProps {
   testId: string
-  testTitle: string
   testTypeName: string
   timeLimit: number
-  questions: Question[]
+  questionText: string
+  imageUrl: string | null
+  answer0: string
+  answer1: string
+  answer2: string
+  answer3: string
+  correctAnswer: number
   userId: string
 }
 
-export function TestInterface({ testId, testTitle, testTypeName, timeLimit, questions, userId }: TestInterfaceProps) {
+export function TestInterface({
+  testId,
+  testTypeName,
+  timeLimit,
+  questionText,
+  imageUrl,
+  answer0,
+  answer1,
+  answer2,
+  answer3,
+  correctAnswer,
+  userId,
+}: TestInterfaceProps) {
   const router = useRouter()
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({})
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null)
   const [timeRemaining, setTimeRemaining] = useState(timeLimit)
   const [attemptId, setAttemptId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [startTime] = useState(Date.now())
-
-  const currentQuestion = questions[currentQuestionIndex]
-  const progress = ((currentQuestionIndex + 1) / questions.length) * 100
 
   // Initialize test attempt
   useEffect(() => {
@@ -52,13 +52,20 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
           user_id: userId,
           test_id: testId,
           started_at: new Date().toISOString(),
-          total_questions: questions.length,
+          selected_answer: -1, // Will be updated on submit
+          is_correct: false,
         })
         .select()
         .single()
 
       if (error) {
-        console.error("Error creating attempt:", error)
+        const errorInfo = {
+          message: error.message || "Unknown error",
+          details: error.details || "No details available",
+          hint: error.hint || "No hint available",
+          code: error.code || "No code available",
+        }
+        console.error("Error creating attempt:", errorInfo, "Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
         return
       }
 
@@ -66,7 +73,7 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
     }
 
     initAttempt()
-  }, [testId, userId, questions.length])
+  }, [testId, userId])
 
   // Timer countdown
   useEffect(() => {
@@ -76,7 +83,14 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
     }
 
     const timer = setInterval(() => {
-      setTimeRemaining((prev) => prev - 1)
+      setTimeRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          handleSubmitTest()
+          return 0
+        }
+        return prev - 1
+      })
     }, 1000)
 
     return () => clearInterval(timer)
@@ -88,59 +102,25 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
-  const handleSelectAnswer = (answerIndex: number) => {
-    setSelectedAnswers((prev) => ({
-      ...prev,
-      [currentQuestion.id]: answerIndex,
-    }))
-  }
-
-  const handleNext = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex((prev) => prev + 1)
-    }
-  }
-
-  const handlePrevious = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex((prev) => prev - 1)
-    }
-  }
-
   const handleSubmitTest = async () => {
-    if (isSubmitting || !attemptId) return
+    if (isSubmitting || !attemptId || selectedAnswer === null) {
+      // If no answer selected, still submit but mark as incorrect
+      if (selectedAnswer === null && !isSubmitting && attemptId) {
+        // Continue with submission
+      } else {
+        return
+      }
+    }
 
     setIsSubmitting(true)
     const supabase = createClient()
 
     try {
-      // Calculate results
-      let correctCount = 0
-      const userAnswers = questions.map((q) => {
-        const selectedAnswer = selectedAnswers[q.id] ?? -1
-        const isCorrect = selectedAnswer === q.correct_answer
-        if (isCorrect) correctCount++
-
-        return {
-          attempt_id: attemptId,
-          question_id: q.id,
-          selected_answer: selectedAnswer,
-          is_correct: isCorrect,
-        }
-      })
-
-      // Insert user answers
-      const { error: answersError } = await supabase.from("user_answers").insert(userAnswers)
-
-      if (answersError) {
-        console.error("Error saving answers:", answersError)
-        return
-      }
-
-      // Calculate time spent
+      const finalAnswer = selectedAnswer ?? -1
+      const isCorrect = finalAnswer === correctAnswer
       const timeSpent = Math.floor((Date.now() - startTime) / 1000)
-      const score = Math.round((correctCount / questions.length) * 100)
-      const passed = score >= 70
+      const score = isCorrect ? 100 : 0
+      const passed = isCorrect
 
       // Update attempt with results
       const { error: updateError } = await supabase
@@ -150,25 +130,33 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
           time_spent: timeSpent,
           score,
           passed,
+          selected_answer: finalAnswer,
+          is_correct: isCorrect,
         })
         .eq("id", attemptId)
 
       if (updateError) {
-        console.error("Error updating attempt:", updateError)
+        const errorInfo = {
+          message: updateError.message || "Unknown error",
+          details: updateError.details || "No details available",
+          hint: updateError.hint || "No hint available",
+          code: updateError.code || "No code available",
+        }
+        console.error("Error updating attempt:", errorInfo, "Full error:", JSON.stringify(updateError, Object.getOwnPropertyNames(updateError)))
         return
       }
 
       // Redirect to results page
       router.push(`/test/${testId}/results/${attemptId}`)
     } catch (error) {
-      console.error("Error submitting test:", error)
+      console.error("Error submitting test:", error instanceof Error ? error.message : "Unknown error", error)
     } finally {
       setIsSubmitting(false)
     }
   }
 
   const isTimeRunningOut = timeRemaining < 60
-  const selectedAnswer = selectedAnswers[currentQuestion?.id]
+  const answers = [answer0, answer1, answer2, answer3]
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -177,8 +165,8 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">{testTitle}</h1>
-              <p className="text-sm text-gray-600">{testTypeName}</p>
+              <h1 className="text-xl font-bold text-gray-900">{testTypeName} Test</h1>
+              <p className="text-sm text-gray-600">Answer the question before time runs out</p>
             </div>
             <div
               className={`flex items-center gap-2 rounded-lg px-4 py-2 font-mono text-2xl font-bold ${
@@ -189,27 +177,21 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
               {formatTime(timeRemaining)}
             </div>
           </div>
-          <div className="mt-4">
-            <Progress value={progress} className="h-2" />
-            <p className="mt-2 text-sm text-gray-600">
-              Question {currentQuestionIndex + 1} of {questions.length}
-            </p>
-          </div>
         </div>
       </header>
 
       {/* Question Content */}
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-6 py-8 max-w-4xl">
         <Card className="border-2">
           <CardHeader>
-            <CardTitle className="text-2xl leading-relaxed">{currentQuestion?.question_text}</CardTitle>
+            <CardTitle className="text-2xl leading-relaxed">{questionText}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Question Image */}
-            {currentQuestion?.image_url && (
+            {imageUrl && (
               <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-gray-100">
                 <Image
-                  src={currentQuestion.image_url || "/placeholder.svg"}
+                  src={imageUrl}
                   alt="Question illustration"
                   fill
                   className="object-cover"
@@ -220,19 +202,19 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
 
             {/* Answer Options */}
             <div className="grid gap-3">
-              {[0, 1, 2, 3].map((index) => {
-                const answerText = currentQuestion?.[`answer_${index}` as keyof Question] as string
+              {answers.map((answerText, index) => {
                 const isSelected = selectedAnswer === index
 
                 return (
                   <button
                     key={index}
-                    onClick={() => handleSelectAnswer(index)}
+                    onClick={() => setSelectedAnswer(index)}
+                    disabled={isSubmitting}
                     className={`rounded-lg border-2 p-4 text-left transition-all hover:shadow-md ${
                       isSelected
                         ? "border-indigo-600 bg-indigo-50 shadow-md"
                         : "border-gray-200 bg-white hover:border-indigo-300"
-                    }`}
+                    } ${isSubmitting ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                   >
                     <div className="flex items-center gap-3">
                       <div
@@ -249,43 +231,16 @@ export function TestInterface({ testId, testTitle, testTypeName, timeLimit, ques
               })}
             </div>
 
-            {/* Navigation Buttons */}
-            <div className="flex items-center justify-between gap-4 pt-4">
+            {/* Submit Button */}
+            <div className="flex justify-center pt-4">
               <Button
-                onClick={handlePrevious}
-                disabled={currentQuestionIndex === 0}
-                variant="outline"
+                onClick={handleSubmitTest}
+                disabled={isSubmitting || selectedAnswer === null}
                 size="lg"
-                className="bg-transparent"
+                className="min-w-[200px]"
               >
-                Previous
+                {isSubmitting ? "Submitting..." : "Submit Answer"}
               </Button>
-
-              <div className="flex gap-2">
-                {questions.map((_, index) => (
-                  <div
-                    key={index}
-                    className={`h-2 w-2 rounded-full ${
-                      index === currentQuestionIndex
-                        ? "bg-indigo-600"
-                        : selectedAnswers[questions[index].id] !== undefined
-                          ? "bg-green-500"
-                          : "bg-gray-300"
-                    }`}
-                  />
-                ))}
-              </div>
-
-              {currentQuestionIndex < questions.length - 1 ? (
-                <Button onClick={handleNext} size="lg">
-                  Next
-                  <ChevronRight className="ml-2 h-5 w-5" />
-                </Button>
-              ) : (
-                <Button onClick={handleSubmitTest} disabled={isSubmitting} size="lg">
-                  {isSubmitting ? "Submitting..." : "Submit Test"}
-                </Button>
-              )}
             </div>
           </CardContent>
         </Card>

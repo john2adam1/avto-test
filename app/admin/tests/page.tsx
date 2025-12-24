@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
-import { ArrowLeft, Plus, Pencil, List } from "lucide-react"
+import { ArrowLeft, Plus, Pencil } from "lucide-react"
 import { DeleteTestButton } from "@/components/admin/delete-test-button"
 
 async function getTests() {
@@ -14,18 +14,31 @@ async function getTests() {
     .select(
       `
       *,
-      test_types (name),
-      questions (count)
+      test_types (name)
     `,
     )
     .order("created_at", { ascending: false })
 
   if (error) {
-    console.error("Error fetching tests:", error)
+    const errorInfo = {
+      message: error.message || "Unknown error",
+      details: error.details || "No details available",
+      hint: error.hint || "No hint available",
+      code: error.code || "No code available",
+    }
+    console.error("Error fetching tests:", errorInfo, "Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
     return []
   }
 
-  return data
+  if (!data) {
+    return []
+  }
+
+  // Handle nested test_types
+  return data.map((test: any) => ({
+    ...test,
+    test_types: Array.isArray(test.test_types) ? test.test_types[0] : test.test_types,
+  }))
 }
 
 export default async function TestsManagementPage() {
@@ -55,7 +68,7 @@ export default async function TestsManagementPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold text-gray-900">All Tests</h2>
-            <p className="text-gray-600">Manage tests and their questions</p>
+            <p className="text-gray-600">Manage tests (one test per category)</p>
           </div>
           <Button asChild>
             <Link href="/admin/tests/create">
@@ -69,27 +82,19 @@ export default async function TestsManagementPage() {
           {tests.map((test: any) => (
             <Card key={test.id} className="border-2">
               <CardHeader>
-                <CardTitle>{test.title}</CardTitle>
-                <CardDescription>{test.test_types?.name}</CardDescription>
+                <CardTitle className="truncate">{test.test_types?.name || "Unknown Category"}</CardTitle>
+                <CardDescription className="line-clamp-2">{test.question_text}</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="mb-4 text-sm text-gray-600">Questions: {test.questions?.length || 0}</p>
-                <div className="flex flex-col gap-2">
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/admin/tests/${test.id}/questions`}>
-                      <List className="mr-2 h-4 w-4" />
-                      Manage Questions
+                <p className="mb-4 text-sm text-gray-600">Question: {test.question_text.substring(0, 50)}...</p>
+                <div className="flex gap-2">
+                  <Button asChild size="sm" variant="outline" className="flex-1 bg-transparent">
+                    <Link href={`/admin/tests/${test.id}/edit`}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
                     </Link>
                   </Button>
-                  <div className="flex gap-2">
-                    <Button asChild size="sm" variant="outline" className="flex-1 bg-transparent">
-                      <Link href={`/admin/tests/${test.id}/edit`}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Edit
-                      </Link>
-                    </Button>
-                    <DeleteTestButton testId={test.id} testTitle={test.title} />
-                  </div>
+                  <DeleteTestButton testId={test.id} testTitle={test.test_types?.name || "Test"} />
                 </div>
               </CardContent>
             </Card>

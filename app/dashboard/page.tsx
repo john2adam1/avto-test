@@ -18,33 +18,127 @@ interface TestType {
 
 interface Test {
   id: string
-  title: string
+  test_type_id: string
+  question_text: string
+  image_url: string | null
+  correct_answer: number
+  answer_0: string
+  answer_1: string
+  answer_2: string
+  answer_3: string
 }
 
 async function getTestTypes() {
-  const supabase = await createClient()
+  try {
+    const supabase = await createClient()
 
-  const { data, error } = await supabase.from("test_types").select("*").order("name")
+    // Verify user is authenticated
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
 
-  if (error) {
-    console.error("Error fetching test types:", error)
+    if (authError) {
+      console.error("Auth error when fetching test types:", authError)
+      return []
+    }
+
+    if (!user) {
+      console.error("User not authenticated when fetching test types")
+      return []
+    }
+
+    const { data, error } = await supabase.from("test_types").select("*").order("name")
+
+    if (error) {
+      // Extract all properties (including non-enumerable ones)
+      const allPropertyNames = Object.getOwnPropertyNames(error)
+      const errorInfo: Record<string, unknown> = {}
+      
+      // Try to extract common error properties
+      for (const prop of allPropertyNames) {
+        try {
+          const value = (error as unknown as Record<string, unknown>)[prop]
+          if (value !== undefined) {
+            errorInfo[prop] = value
+          }
+        } catch {
+          // Skip properties that can't be accessed
+        }
+      }
+      
+      // Also try direct property access
+      if ('message' in error) errorInfo.message = (error as { message?: string }).message
+      if ('details' in error) errorInfo.details = (error as { details?: string }).details
+      if ('hint' in error) errorInfo.hint = (error as { hint?: string }).hint
+      if ('code' in error) errorInfo.code = (error as { code?: string }).code
+      
+      // Try to stringify the error
+      let errorString = "Could not stringify error"
+      try {
+        errorString = JSON.stringify(error, Object.getOwnPropertyNames(error))
+      } catch {
+        try {
+          errorString = String(error)
+        } catch {
+          errorString = "[Error object could not be serialized]"
+        }
+      }
+      
+      // Log comprehensive error information
+      console.error("Error fetching test types:", {
+        errorInfo,
+        allPropertyNames,
+        errorString,
+        errorType: error?.constructor?.name || typeof error,
+        userAuthenticated: !!user,
+        userId: user?.id,
+        userEmail: user?.email,
+        timestamp: new Date().toISOString(),
+      })
+      
+      // Additional diagnostic: Try a simple query to check if RLS is the issue
+      const { data: testData, error: testError } = await supabase
+        .from("test_types")
+        .select("id")
+        .limit(1)
+      
+      if (testError) {
+        console.error("Diagnostic query also failed:", {
+          message: testError.message,
+          code: testError.code,
+          details: testError.details,
+        })
+      } else {
+        console.warn("Diagnostic query succeeded but main query failed - possible ordering issue")
+      }
+      
+      return []
+    }
+
+    if (!data) {
+      console.warn("No data returned from test_types query")
+      return []
+    }
+
+    return data as TestType[]
+  } catch (err) {
+    console.error("Unexpected error in getTestTypes:", err)
     return []
   }
-
-  return data as TestType[]
 }
 
-async function getTestsByType(testTypeId: string) {
+async function getTestByType(testTypeId: string) {
   const supabase = await createClient()
 
-  const { data, error } = await supabase.from("tests").select("id, title").eq("test_type_id", testTypeId)
+  const { data, error } = await supabase.from("tests").select("*").eq("test_type_id", testTypeId).single()
 
   if (error) {
-    console.error("Error fetching tests:", error)
-    return []
+    // Test doesn't exist for this category yet
+    return null
   }
 
-  return data as Test[]
+  return data as Test | null
 }
 
 export default async function DashboardPage() {
@@ -68,13 +162,13 @@ export default async function DashboardPage() {
 
   const testTypes = await getTestTypes()
 
-  // Fetch tests for each test type
-  const testTypesWithTests = await Promise.all(
+  // Fetch one test for each test type (one test per category)
+  const testTypesWithTest = await Promise.all(
     testTypes.map(async (testType) => {
-      const tests = await getTestsByType(testType.id)
+      const test = await getTestByType(testType.id)
       return {
         ...testType,
-        tests,
+        test,
       }
     }),
   )
@@ -121,7 +215,7 @@ export default async function DashboardPage() {
         </div>
 
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-          {testTypesWithTests.map((testType) => (
+          {testTypesWithTest.map((testType) => (
             <Card key={testType.id} className="border-2 transition-all hover:scale-105 hover:shadow-xl">
               <CardHeader>
                 <CardTitle className="text-2xl">{testType.name}</CardTitle>
@@ -133,36 +227,31 @@ export default async function DashboardPage() {
                   <span>{Math.floor(testType.time_limit / 60)} minutes</span>
                 </div>
 
-                <div className="space-y-2">
-                  {testType.tests.length > 0 ? (
-                    testType.tests.map((test) => (
-                      <Button
-                        key={test.id}
-                        asChild={subscriptionStatus.hasAccess}
-                        className="w-full bg-transparent"
-                        variant="outline"
-                        disabled={!subscriptionStatus.hasAccess}
-                      >
-                        {subscriptionStatus.hasAccess ? (
-                          <Link href={`/test/${test.id}`}>{test.title}</Link>
-                        ) : (
-                          <span>{test.title}</span>
-                        )}
-                      </Button>
-                    ))
-                  ) : (
-                    <p className="text-sm text-gray-500">No tests available</p>
-                  )}
-                </div>
+                {testType.test ? (
+                  <Button
+                    asChild={subscriptionStatus.hasAccess}
+                    className="w-full"
+                    variant={subscriptionStatus.hasAccess ? "default" : "outline"}
+                    disabled={!subscriptionStatus.hasAccess}
+                  >
+                    {subscriptionStatus.hasAccess ? (
+                      <Link href={`/test/${testType.test!.id}`}>Start Test</Link>
+                    ) : (
+                      <span>Start Test</span>
+                    )}
+                  </Button>
+                ) : (
+                  <p className="text-sm text-gray-500">Test not available yet</p>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
 
-        {testTypesWithTests.length === 0 && (
+        {testTypesWithTest.length === 0 && (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <p className="text-lg text-gray-600">No test types available yet.</p>
+              <p className="text-lg text-gray-600">No test categories available yet.</p>
             </CardContent>
           </Card>
         )}

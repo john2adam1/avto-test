@@ -37,13 +37,19 @@ export async function POST(request: Request) {
       .eq("id", userId)
 
     if (error) {
-      console.error("Error updating subscription:", error)
-      return NextResponse.json({ error: "Failed to update subscription" }, { status: 500 })
+      const errorInfo = {
+        message: error.message || "Unknown error",
+        details: error.details || "No details available",
+        hint: error.hint || "No hint available",
+        code: error.code || "No code available",
+      }
+      console.error("Error updating subscription:", errorInfo, "Full error:", JSON.stringify(error, Object.getOwnPropertyNames(error)))
+      return NextResponse.json({ error: error.message || "Failed to update subscription" }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error in grant-subscription route:", error)
+    console.error("Error in grant-subscription route:", error instanceof Error ? error.message : "Unknown error", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -43,8 +43,9 @@ export function TelegramSettingsForm({ initialUsername }: { initialUsername: str
       alert("Telegram username updated successfully!")
       router.refresh()
     } catch (error) {
-      console.error("Error updating settings:", error)
-      alert("Failed to update settings. Please try again.")
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      console.error("Error updating settings:", errorMessage, error)
+      alert(`Failed to update settings: ${errorMessage}`)
     } finally {
       setIsLoading(false)
     }
